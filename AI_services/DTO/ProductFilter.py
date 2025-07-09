@@ -6,7 +6,6 @@ class ImageResponse(BaseModel):
     # General
     gender: Optional[str] = None
     styles: Optional[List[str]] = None
-    manufacturers: Optional[List[str]] = None
     description: Optional[str] = None
 
     # For Metals
