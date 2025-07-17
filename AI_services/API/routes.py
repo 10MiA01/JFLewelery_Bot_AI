@@ -1,8 +1,12 @@
 from fastapi import APIRouter, File, UploadFile
 from AI_services.Services.image_analysis import process_image
+from AI_services.Services.tryon import process_image
 from AI_services.DTO.ProductFilter import ImageResponse
 import traceback
 from fastapi import HTTPException
+from fastapi.responses import StreamingResponse
+from io import BytesIO
+import traceback
 
 
 router = APIRouter()
@@ -16,5 +20,20 @@ async def analyze_image(file: UploadFile = File(...)):
         return result
      except Exception as e:
         print("[ERROR] Exception occurred in analyze_image")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@router.post("/virtual-fitting")
+async def virtual_fitting(file: UploadFile = File(...)):
+    try:
+        result_image_bytes = await process_image(file)  
+        return StreamingResponse(
+            content=BytesIO(result_image_bytes),
+            media_type="image/png"  
+        )
+    except Exception as e:
+        print("[ERROR] Exception occurred in virtual_fitting")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
