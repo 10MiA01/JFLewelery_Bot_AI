@@ -27,6 +27,8 @@
     <Compile Include="AI_services\API\__init__.py" />
     <Compile Include="AI_services\DTO\ProductFilter.py" />
     <Compile Include="AI_services\DTO\__init__.py" />
+    <Compile Include="AI_services\Helpers\CategoryTryOnDict.py" />
+    <Compile Include="AI_services\Helpers\__init__.py" />
     <Compile Include="main.py" />
     <Compile Include="AI_services\Services\image_analysis.py" />
     <Compile Include="AI_services\Services\tryon.py" />
@@ -40,6 +42,7 @@
     <Folder Include="AI_services\" />
     <Folder Include="AI_services\API\" />
     <Folder Include="AI_services\DTO\" />
+    <Folder Include="AI_services\Helpers\" />
     <Folder Include="AI_services\Services\" />
   </ItemGroup>
   <ItemGroup>

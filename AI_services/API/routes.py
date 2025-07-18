@@ -1,4 +1,4 @@
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, UploadFile, Form
 from AI_services.Services.image_analysis import process_image
 from AI_services.Services.tryon import process_image
 from AI_services.DTO.ProductFilter import ImageResponse
@@ -26,7 +26,7 @@ async def analyze_image(file: UploadFile = File(...)):
 
 
 @router.post("/virtual-fitting")
-async def virtual_fitting(file: UploadFile = File(...)):
+async def virtual_fitting(file: UploadFile = File(...), category: str = Form(...), id: int = Form(...)):
     try:
         result_image_bytes = await process_image(file)  
         return StreamingResponse(
