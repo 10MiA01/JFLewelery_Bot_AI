@@ -1,10 +1,11 @@
-from fastapi import APIRouter, File, UploadFile, Form
+﻿from fastapi import APIRouter, File, UploadFile, Form
 from PIL import Image
 from io import BytesIO
 import mediapipe as mp
 import cv2
 import numpy as np
 from PIL import Image
+import math
 from Helpers import CategoryTryOnDict
 
 mp_pose = mp.solutions.pose
@@ -53,6 +54,64 @@ def is_part_present(results, category_group):
     if category_group == 'body':
         return results['pose'] is not None
 
+def get_angle(p1, p2):
+    dx = p2[0] - p1[0]
+    dy = p2[1] - p1[1]
+    angle = math.degrees(math.atan2(dy, dx))
+    return angle
+
+
+def get_scale(p1, p2, base_length):
+    """
+    base_length — ref size of img in pixels
+    """
+    dist = math.sqrt((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2)
+    scale = dist / base_length
+    return scale
+
+
+def rotate_and_scale_image(img, angle, scale):
+    (h, w) = img.shape[:2]
+    center = (w // 2, h // 2)
+    M = cv2.getRotationMatrix2D(center, angle, scale)    # Matrix for 2D rotate and scale
+    rotated_scaled = cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)  # Apply the matrix
+    return rotated_scaled
+
+def overlay_image_alpha(background, overlay, x, y):
+    """
+    background — base image (OpenCV, BGR)
+    overlay — PNG image (BGRA) with transparency
+    x, y — coordinates of centre for paste - counted from landmarks
+    """
+    bh, bw = background.shape[:2]
+    oh, ow = overlay.shape[:2]
+
+    # Paste coordinates
+    x1 = max(x - ow // 2, 0)
+    y1 = max(y - oh // 2, 0)
+    x2 = min(x1 + ow, bw)
+    y2 = min(y1 + oh, bh)
+
+    # Crop for neded area
+    overlay_crop = overlay[0:(y2 - y1), 0:(x2 - x1)] # Slice of numpy 2D array
+
+    # if nothing to paste => return just a photo
+    if overlay_crop.shape[0] == 0 or overlay_crop.shape[1] == 0:
+        return background
+
+    # Get channels from pixels arrays => splits a multi-channel image (in this case 4-channel) into 2D arrays
+    b, g, r, a = cv2.split(overlay_crop)
+
+    # Normalize alpha channel to range from 0 to 1
+    alpha = a / 255.0
+
+    for c, color in enumerate([b, g, r]):
+        background[y1:y2, x1:x2, c] = (
+            alpha * color + (1 - alpha) * background[y1:y2, x1:x2, c]
+        )
+
+    return background
+
 
 
 # To Do sketch
@@ -69,7 +128,7 @@ async def process_image(file: UploadFile, category: str, id: int):
     results = analyze_image_parts(cv2_image)
 
     if not is_part_present(results, selected_group):
-        raise ValueError(f"Photo nit suitable for a category {category}, ????? ???? ?? ???????")
+        raise ValueError(f"Photo nit suitable for a category {category}, часть тела не найдена")
 
     # face
     if selected_group == "face":
