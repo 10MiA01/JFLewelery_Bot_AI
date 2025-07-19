@@ -105,6 +105,7 @@ def overlay_image_alpha(background, overlay, x, y):
     # Normalize alpha channel to range from 0 to 1
     alpha = a / 255.0
 
+    # apply overlay pixels to bachground 
     for c, color in enumerate([b, g, r]):
         background[y1:y2, x1:x2, c] = (
             alpha * color + (1 - alpha) * background[y1:y2, x1:x2, c]
@@ -117,9 +118,13 @@ def overlay_image_alpha(background, overlay, x, y):
 # To Do sketch
 async def process_image(file: UploadFile, category: str, id: int):
 
-    # Get the image
+    # Get the image from client
     image = Image.open(file.file).convert("RGB")
     cv2_image = pil_to_cv2(image)
+
+    # To Do
+    #Get the inamge of product by id
+    overlay_image = cv2.imread(f"products/{id}.png", cv2.IMREAD_UNCHANGED)
 
     # Get the category
     selected_group = find_group_by_category(category)
@@ -136,16 +141,45 @@ async def process_image(file: UploadFile, category: str, id: int):
             face_results = face_mesh.process(cv2_image)
 
             if face_results.multi_face_landmarks:
-                landmarks = face_results.multi_face_landmarks[0].landmark # relative points
-                h, w, _ = cv2_image.shape # Get real parametrs of image
+                raise ValueError("Face not recognized")
+
+            landmarks = face_results.multi_face_landmarks[0].landmark # relative points
+            h, w, _ = cv2_image.shape # Get real parametrs of image
 
             if category == "Earrings":              # Landmark-234 left, 454 right
                 x_left = int(landmarks[234].x * w)       # Left ear
                 y_left = int(landmarks[234].y * h)
+                x_left_neck = int(landmarks[200].x * w)     # Left neck
+                y_left_neck = int(landmarks[200].y * h)
+
                 x_right = int(landmarks[454].x * w)       # Right ear
                 y_right = int(landmarks[454].y * h)
+                x_right_neck = int(landmarks[430].x * w)     # Right neck
+                y_right_neck = int(landmarks[430].y * h)
+                
+                # coordinates
+                pl1 = (x_left, y_left)                  # Left ear
+                pl2 = (x_left_neck, y_left_neck)        # Left neck
+                pr1 = (x_right, y_right)                # Right ear
+                pr2 = (x_right_neck, y_right_neck)      # Right neck
+
+                # angles
+                angle_left = get_angle(pl1, pl2)
+                angle_right = get_angle(pr1, pr2)
+
+                # scale
+                scale_left = get_scale(pl1, pl2, w)
+                scale_right = get_scale(pr1, pr2, w)
+
+                # transform
+                transform_left = rotate_and_scale_image(overlay_image, angle_left, scale_left)
+                transform_right = rotate_and_scale_image(overlay_image, angle_right, scale_right)
 
                 # paste the image
+                output_left = overlay_image_alpha(cv2_image, transform_left, x_left, y_left)
+                output_right = overlay_image_alpha(output_left, transform_right, x_right, y_right)
+
+                return output_right
 
             elif category == "Necklaces":           # Landmark-152
                 x = int(landmarks[152].x * w)
