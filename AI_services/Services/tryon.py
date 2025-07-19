@@ -61,6 +61,11 @@ def get_angle(p1, p2):
     angle = math.degrees(math.atan2(dy, dx))
     return angle
 
+def shift_along_angle(x, y, angle_deg, distance):
+    angle_rad = math.radians(angle_deg)
+    dx = int(math.cos(angle_rad) * distance)
+    dy = int(math.sin(angle_rad) * distance)
+    return x + dx, y + dy
 
 def get_scale(p1, p2, base_length):
     """
@@ -69,7 +74,6 @@ def get_scale(p1, p2, base_length):
     dist = math.sqrt((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2)
     scale = dist / base_length
     return scale
-
 
 def rotate_and_scale_image(img, angle, scale):
     (h, w) = img.shape[:2]
@@ -115,6 +119,24 @@ def overlay_image_alpha(background, overlay, x, y):
     return background
 
 
+def get_hand_score(landmarks, image_shape):
+    h, w, _ = image_shape
+    # coordinates from landmarks
+    xs = [lm.x for lm in landmarks]
+    ys = [lm.y for lm in landmarks]
+
+    # How much landmarks are on the picture
+    visible_points = sum(0 <= lm.x <= 1 and 0 <= lm.y <= 1 for lm in landmarks)
+
+    # How much area covered with a hand
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    area = (max_x - min_x) * (max_y - min_y)
+
+    # get the score
+    score = visible_points + area * 100
+
+    return score
 
 # To Do sketch
 async def process_image(file: UploadFile, category: str, id: int):
@@ -329,7 +351,178 @@ async def process_image(file: UploadFile, category: str, id: int):
 
 
     # hands
-    # body
+    if selected_group == "hands":
+        with mp.solutions.hands.Hands(static_image_mode=True, max_num_hands=2) as hands:
+            hand_results = hands.process(cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB))
+
+        if not hand_results.multi_hand_landmarks:
+            raise ValueError("Hand not recognized")
+            
+            best_hand = None
+        best_score = -1
+
+        for hand_landmarks in hand_results.multi_hand_landmarks:
+            score = get_hand_score(hand_landmarks.landmark, cv2_image.shape)
+            if score > best_score:
+                best_score = score
+                best_hand = hand_landmarks
+            
+            landmarks_ = best_hand.landmark # relative points
+            h, w, _ = cv2_image.shape # Get real parametrs of image
+
+            if category == "Rings":              
+                x1 = int(landmarks[10].x * w)        # Landmark middle finger-pip-10
+                y1 = int(landmarks[10].y * h)
+                x2 = int(landmarks[9].x * w)       # Landmark middle finger-mcp-9
+                y2 = int(landmarks[9].y * h)
+                x_center = (x1 + x2) // 2       # Center 
+                y_center = (y1 + y2) // 2
+                
+                # coordinates
+                p1 = (x1, y1)
+                p2 = (x2, y2)
+
+                # angles
+                angle = get_angle(p1, p2)
+
+                # scale
+                scale = get_scale(p1, p2, w)
+                
+                # transform
+                transform = rotate_and_scale_image(overlay_image, angle, scale)
+
+                # paste the image
+                output = overlay_image_alpha(cv2_image, transform, x_center, y_center)
+
+                output_image = output
+
+            
+            # To Do
+            elif category == "Bracelets": 
+                x1 = int(landmarks[9].x * w)       # Landmark middle finger-mcp-9
+                y2 = int(landmarks[9].y * h)
+                x2 = int(landmarks[0].x * w)       # Landmark wrist-0
+                y2 = int(landmarks[0].y * h)
+
+                # coordinates
+                p1 = (x1, y1)
+                p2 = (x2, y2)
+
+                # angles
+                angle = get_angle(p1, p2)
+
+                # scale
+                scale = get_scale(p1, p2, w)
+                
+                # transform
+                transform = rotate_and_scale_image(overlay_image, angle, scale)
+                
+                # Get point for paste
+                x_shift, y_shift = shift_along_angle(x1, y1, angle, 30)
+
+                # paste the image
+                output = overlay_image_alpha(cv2_image, transform, x_shift, y_shift)
+
+                output_image = output
+
+    # body- to do
+
+    if selected_group == "body":
+        with mp.solutions.body.Body(static_image_mode=True, max_num_hands=2) as body:
+            body_results = body.process(cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB))
+
+        if not body_results.multi_body_landmarks:
+            raise ValueError("Hand not recognized")
+
+            landmarks = hand_results.multi_hand_landmarks[0].landmark # relative points
+            h, w, _ = cv2_image.shape # Get real parametrs of image
+
+            # To Do
+            if category == "Brooches":              # Landmark-234 left, 454 right
+                x_left = int(landmarks[234].x * w)       # Left ear
+                y_left = int(landmarks[234].y * h)
+                x_left_neck = int(landmarks[200].x * w)     # Left neck
+                y_left_neck = int(landmarks[200].y * h)
+
+                x_right = int(landmarks[454].x * w)       # Right ear
+                y_right = int(landmarks[454].y * h)
+                x_right_neck = int(landmarks[430].x * w)     # Right neck
+                y_right_neck = int(landmarks[430].y * h)
+                
+                # coordinates
+                pl1 = (x_left, y_left)                  # Left ear
+                pl2 = (x_left_neck, y_left_neck)        # Left neck
+                pr1 = (x_right, y_right)                # Right ear
+                pr2 = (x_right_neck, y_right_neck)      # Right neck
+
+                # angles
+                angle_left = get_angle(pl1, pl2)
+                angle_right = get_angle(pr1, pr2)
+
+                # scale
+                scale_left = get_scale(pl1, pl2, w)
+                scale_right = get_scale(pr1, pr2, w)
+
+                # transform
+                transform_left = rotate_and_scale_image(overlay_image, angle_left, scale_left)
+                transform_right = rotate_and_scale_image(overlay_image, angle_right, scale_right)
+
+                # paste the image
+                output_left = overlay_image_alpha(cv2_image, transform_left, x_left, y_left)
+                output_right = overlay_image_alpha(output_left, transform_right, x_right, y_right)
+
+                output_image = output_right
+
+            
+            # To Do
+            elif category == "Chains": 
+                x1 = int(landmarks[152].x * w)        # Landmark chin-152
+                y1 = int(landmarks[152].y * h)
+                x2 = int(landmarks[200].x * w)       # Landmark chin-152
+                y2 = int(landmarks[200].y * h)
+
+                # coordinates
+                p1 = (x1, y1)
+                p2 = (x2, y2)
+
+                # angles
+                angle = get_angle(p1, p2)
+
+                # scale
+                scale = get_scale(p1, p2, w)
+                
+                # transform
+                transform = rotate_and_scale_image(overlay_image, angle, scale)
+
+                # paste the image
+                output = overlay_image_alpha(cv2_image, transform, x2, y2)
+
+                output_image = output
+
+            # To Do
+            elif category == "Pins": 
+                x1 = int(landmarks[152].x * w)        # Landmark chin-152
+                y1 = int(landmarks[152].y * h)
+                x2 = int(landmarks[200].x * w)       # Landmark chin-152
+                y2 = int(landmarks[200].y * h)
+
+                # coordinates
+                p1 = (x1, y1)
+                p2 = (x2, y2)
+
+                # angles
+                angle = get_angle(p1, p2)
+
+                # scale
+                scale = get_scale(p1, p2, w)
+                
+                # transform
+                transform = rotate_and_scale_image(overlay_image, angle, scale)
+
+                # paste the image
+                output = overlay_image_alpha(cv2_image, transform, x2, y2)
+
+                output_image = output
 
     output_buffer = BytesIO()
     image.save(output_buffer, format="PNG")
