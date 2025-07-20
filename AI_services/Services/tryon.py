@@ -347,9 +347,6 @@ async def process_image(file: UploadFile, category: str, id: int):
 
                 output_image = output_right
         
-        
-
-
     # hands
     if selected_group == "hands":
         with mp.solutions.hands.Hands(static_image_mode=True, max_num_hands=2) as hands:
@@ -358,7 +355,7 @@ async def process_image(file: UploadFile, category: str, id: int):
         if not hand_results.multi_hand_landmarks:
             raise ValueError("Hand not recognized")
             
-            best_hand = None
+        best_hand = None
         best_score = -1
 
         for hand_landmarks in hand_results.multi_hand_landmarks:
@@ -425,104 +422,76 @@ async def process_image(file: UploadFile, category: str, id: int):
 
                 output_image = output
 
-    # body- to do
-
+    # body
     if selected_group == "body":
-        with mp.solutions.body.Body(static_image_mode=True, max_num_hands=2) as body:
-            body_results = body.process(cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB))
+        with mp_pose.Pose(static_image_mode=True) as pose:
+            pose_results = pose.process(cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB))
 
-        if not body_results.multi_body_landmarks:
-            raise ValueError("Hand not recognized")
+        if not pose_results.pose_landmarks:
+            raise ValueError("Body not recognized")
 
-            landmarks = hand_results.multi_hand_landmarks[0].landmark # relative points
-            h, w, _ = cv2_image.shape # Get real parametrs of image
+        landmarks = pose_results.pose_landmarks.landmark # relative points
+        h, w, _ = cv2_image.shape # Get real parametrs of image
 
-            # To Do
-            if category == "Brooches":              # Landmark-234 left, 454 right
-                x_left = int(landmarks[234].x * w)       # Left ear
-                y_left = int(landmarks[234].y * h)
-                x_left_neck = int(landmarks[200].x * w)     # Left neck
-                y_left_neck = int(landmarks[200].y * h)
+        # Common calculations for pose
+        x_left = int(landmarks[12].x * w)       # Left shoulder
+        y_left = int(landmarks[12].y * h)
+        x_left_pelvis = int(landmarks[24].x * w)     # Left pelvis
+        y_left_pelvis  = int(landmarks[24].y * h)
 
-                x_right = int(landmarks[454].x * w)       # Right ear
-                y_right = int(landmarks[454].y * h)
-                x_right_neck = int(landmarks[430].x * w)     # Right neck
-                y_right_neck = int(landmarks[430].y * h)
+        x_right = int(landmarks[11].x * w)      # Right shoulder
+        y_right = int(landmarks[11].y * h)
+        x_right_pelvis  = int(landmarks[23].x * w)     # Right pelvis
+        y_right_pelvis  = int(landmarks[23].y * h)
+
+        # Axis shoulder
+        x_axis_shoulder = int((x_left + x_right) / 2)
+        y_axis_shoulder = int((y_left + y_right) / 2)
+
+        # Axis pelvis
+        x_axis_pelvis = int((x_left_pelvis + x_right_pelvis) / 2)
+        y_axis_pelvis = int((y_left_pelvis + y_right_pelvis) / 2)
+
+        # coordinates
+        p1 = (x_axis_shoulder, y_axis_shoulder)
+        p2 = (x_axis_pelvis, y_axis_pelvis)
+
+        # angles
+        angle = get_angle(p1, p2)
+
+        # scale
+        scale = get_scale(p1, p2, w)
+
+        # transform
+        transform = rotate_and_scale_image(overlay_image, angle, scale)
                 
-                # coordinates
-                pl1 = (x_left, y_left)                  # Left ear
-                pl2 = (x_left_neck, y_left_neck)        # Left neck
-                pr1 = (x_right, y_right)                # Right ear
-                pr2 = (x_right_neck, y_right_neck)      # Right neck
+ 
 
-                # angles
-                angle_left = get_angle(pl1, pl2)
-                angle_right = get_angle(pr1, pr2)
+        # To Do
+        if category in ["Brooches", "Pins"]:              
+            # 3/4 of the chest
+            x_chest = int(x_right - (x_right - x_left) * 0.25)
+            y_chest = int(y_right + (y_right - y_right_pelvis)* 0.4)
 
-                # scale
-                scale_left = get_scale(pl1, pl2, w)
-                scale_right = get_scale(pr1, pr2, w)
+            # paste the image
+            output = overlay_image_alpha(cv2_image, transform, x_chest, y_chest)
 
-                # transform
-                transform_left = rotate_and_scale_image(overlay_image, angle_left, scale_left)
-                transform_right = rotate_and_scale_image(overlay_image, angle_right, scale_right)
-
-                # paste the image
-                output_left = overlay_image_alpha(cv2_image, transform_left, x_left, y_left)
-                output_right = overlay_image_alpha(output_left, transform_right, x_right, y_right)
-
-                output_image = output_right
+            output_image = output
 
             
-            # To Do
-            elif category == "Chains": 
-                x1 = int(landmarks[152].x * w)        # Landmark chin-152
-                y1 = int(landmarks[152].y * h)
-                x2 = int(landmarks[200].x * w)       # Landmark chin-152
-                y2 = int(landmarks[200].y * h)
+        # To Do
+        elif category == "Chains": 
+            # paste points
+            x_base = int((landmarks[11].x + landmarks[12].x) / 2 * w)
+            y_base = int((landmarks[11].y + landmarks[12].y) / 2 * h)
+            y_top = y_base - int(0.05 * h)     
 
-                # coordinates
-                p1 = (x1, y1)
-                p2 = (x2, y2)
+            # paste the image
+            output = overlay_image_alpha(cv2_image, transform, x_base, y_top)
 
-                # angles
-                angle = get_angle(p1, p2)
+            output_image = output
 
-                # scale
-                scale = get_scale(p1, p2, w)
-                
-                # transform
-                transform = rotate_and_scale_image(overlay_image, angle, scale)
-
-                # paste the image
-                output = overlay_image_alpha(cv2_image, transform, x2, y2)
-
-                output_image = output
-
-            # To Do
-            elif category == "Pins": 
-                x1 = int(landmarks[152].x * w)        # Landmark chin-152
-                y1 = int(landmarks[152].y * h)
-                x2 = int(landmarks[200].x * w)       # Landmark chin-152
-                y2 = int(landmarks[200].y * h)
-
-                # coordinates
-                p1 = (x1, y1)
-                p2 = (x2, y2)
-
-                # angles
-                angle = get_angle(p1, p2)
-
-                # scale
-                scale = get_scale(p1, p2, w)
-                
-                # transform
-                transform = rotate_and_scale_image(overlay_image, angle, scale)
-
-                # paste the image
-                output = overlay_image_alpha(cv2_image, transform, x2, y2)
-
-                output_image = output
+        
 
     output_buffer = BytesIO()
     image.save(output_buffer, format="PNG")
