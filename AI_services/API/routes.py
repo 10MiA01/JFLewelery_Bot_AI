@@ -28,7 +28,7 @@ async def analyze_image(file: UploadFile = File(...)):
 @router.post("/virtual-fitting")
 async def virtual_fitting(file: UploadFile = File(...), category: str = Form(...), id: int = Form(...)):
     try:
-        result_image_bytes = await process_image(file)  
+        result_image_bytes = await process_image(file, category, id)  
         return StreamingResponse(
             content=BytesIO(result_image_bytes),
             media_type="image/png"  

@@ -7,7 +7,8 @@ import numpy as np
 from PIL import Image
 import math
 from pathlib import Path
-from Helpers import CategoryTryOnDict
+from AI_services.Helpers.CategoryTryOnDict import CategoryTryOnDict
+
 
 mp_pose = mp.solutions.pose
 mp_hands = mp.solutions.hands
@@ -22,7 +23,7 @@ def find_group_by_category(category):
     for group, categories in CategoryTryOnDict.items():
         if category in categories:
             return group
-        return "Not found a group"
+    return "Not found a group"
 
 def analyze_image_parts(cv2_image):
     results = {}
@@ -31,16 +32,25 @@ def analyze_image_parts(cv2_image):
     with mp_pose.Pose(static_image_mode=True) as pose:
         pose_results = pose.process(cv2_image)
         results['pose'] = pose_results.pose_landmarks
+        pose_landmarks = results.get('pose')
+        first_pose = pose_landmarks if pose_landmarks else None  # pose всегда один результат
+        print("Pose landmarks:", first_pose)
 
     # Hands
     with mp_hands.Hands(static_image_mode=True, max_num_hands=2) as hands:
         hands_results = hands.process(cv2_image)
         results['hands'] = hands_results.multi_hand_landmarks
+        hand_landmarks = results.get('hands')
+        first_hand = hand_landmarks[0] if hand_landmarks and len(hand_landmarks) > 0 else None
+        print("First hand landmarks:", first_hand)
 
     # Face mesh
     with mp_face.FaceMesh(static_image_mode=True) as face:
         face_results = face.process(cv2_image)
         results['face'] = face_results.multi_face_landmarks
+        face_landmarks = results.get('face')
+        first_face = face_landmarks[0] if face_landmarks and len(face_landmarks) > 0 else None
+        print("First face landmarks:", first_face)
 
     return results
 
@@ -52,8 +62,8 @@ def is_part_present(results, category_group):
     if category_group == 'hands':
         return results['hands'] is not None
     # face
-    if category_group == 'body':
-        return results['pose'] is not None
+    if category_group == 'face':
+        return results['face'] is not None
 
 def get_angle(p1, p2):
     dx = p2[0] - p1[0]
@@ -118,7 +128,6 @@ def overlay_image_alpha(background, overlay, x, y):
 
     return background
 
-
 def get_hand_score(landmarks, image_shape):
     h, w, _ = image_shape
     # coordinates from landmarks
@@ -142,12 +151,27 @@ def get_hand_score(landmarks, image_shape):
 async def process_image(file: UploadFile, category: str, id: int):
 
     # Get the image from client
-    image = Image.open(file.file).convert("RGB")
+    try:
+        image = Image.open(file.file).convert("RGB")
+    except Exception as e:
+        raise ValueError(f"Failed to read image: {str(e)}")
+
     cv2_image = pil_to_cv2(image)
+    if cv2_image is None:
+        raise ValueError("Failed to convert image to OpenCV format")
 
     #Get the inamge of product by id
-    product_path = Path(__file__).parent.parent / "JFJewelery" / "Media" / "images" / "products" / str(id) / "tryon.png"
+    project_root = Path(__file__).resolve().parents[3]  # go to the root reposetory
+    product_path = project_root / "JFjewelery" / "Media" / "images" / "products" / str(id) / "tryon.png"
+
+    if not product_path.exists():
+        raise FileNotFoundError(f"Overlay image not found at: {product_path}")
+
     overlay_image = cv2.imread(str(product_path), cv2.IMREAD_UNCHANGED)
+    if overlay_image is None:
+        raise ValueError(f"Failed to load image at path: {product_path}")
+
+    print("Resolved product path:", product_path)
 
     # Declare the output
     output_image = None
@@ -159,14 +183,14 @@ async def process_image(file: UploadFile, category: str, id: int):
     results = analyze_image_parts(cv2_image)
 
     if not is_part_present(results, selected_group):
-        raise ValueError(f"Photo nit suitable for a category {category}, часть тела не найдена")
+        raise ValueError(f"Photo not suitable for a category {category}, body part not found")
 
     # face
     if selected_group == "face":
         with mp_face.FaceMesh(static_image_mode=True, refine_landmarks=True) as face_mesh:
             face_results = face_mesh.process(cv2_image)
 
-            if face_results.multi_face_landmarks:
+            if not face_results.multi_face_landmarks:
                 raise ValueError("Face not recognized")
 
             landmarks = face_results.multi_face_landmarks[0].landmark # relative points
@@ -489,15 +513,26 @@ async def process_image(file: UploadFile, category: str, id: int):
             # paste the image
             output = overlay_image_alpha(cv2_image, transform, x_base, y_top)
 
-            output_image = output
+            output_image = output  
 
-        
+    # BGR to RBG
+    output_image_rgb = cv2.cvtColor(output_image, cv2.COLOR_BGR2RGB)
 
+    # Outpun cv => PIL
+    pil_image = Image.fromarray(output_image_rgb)
+
+    # save in bytes
     output_buffer = BytesIO()
-    image.save(output_buffer, format="PNG")
+    pil_image.save(output_buffer, format="PNG")
+    # set on the begining of buffer
     output_buffer.seek(0)
-    return output_buffer.getvalue()
+
+    # get bytes
+    image_bytes = output_buffer.getvalue()
+
+    return image_bytes
 
 
 
 
+ 
