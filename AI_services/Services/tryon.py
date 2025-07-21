@@ -2,6 +2,8 @@
 from PIL import Image
 from io import BytesIO
 import mediapipe as mp
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision  
 import cv2
 import numpy as np
 from PIL import Image
@@ -11,8 +13,29 @@ from AI_services.Helpers.CategoryTryOnDict import CategoryTryOnDict
 
 
 mp_pose = mp.solutions.pose
-mp_hands = mp.solutions.hands
 mp_face = mp.solutions.face_mesh
+
+# new model for hands
+BaseOptions = mp.tasks.BaseOptions
+HandLandmarker = mp.tasks.vision.HandLandmarker
+HandLandmarkerOptions = mp.tasks.vision.HandLandmarkerOptions
+VisionRunningMode = mp.tasks.vision.RunningMode
+
+# path for task 
+task_path = Path(__file__).resolve().parents[2] / "ai_models" / "hand_landmarker.task"
+
+print("Resolved model path:", task_path)
+
+if not task_path.exists():
+    raise FileNotFoundError(f"Model file not found at: {task_path}")
+
+base_options = python.BaseOptions(model_asset_path='hand_landmarker.task')
+options = HandLandmarkerOptions(
+    base_options=base_options,
+    running_mode=VisionRunningMode.IMAGE,
+    num_hands=2)
+
+detector = vision.HandLandmarker.create_from_options(options)
 
 
 def pil_to_cv2(pil_image: Image.Image) -> np.ndarray:
@@ -37,7 +60,8 @@ def analyze_image_parts(cv2_image):
         print("Pose landmarks:", first_pose)
 
     # Hands
-    with mp_hands.Hands(static_image_mode=True, max_num_hands=2) as hands:
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB))
+    with detector.detect(mp_image) as hands:
         hands_results = hands.process(cv2_image)
         results['hands'] = hands_results.multi_hand_landmarks
         hand_landmarks = results.get('hands')
@@ -64,6 +88,15 @@ def is_part_present(results, category_group):
     # face
     if category_group == 'face':
         return results['face'] is not None
+
+def resize_image(image, target_width=640):
+    h, w = image.shape[:2]
+    if w == target_width:
+        return image
+    scale = target_width / w
+    new_dim = (target_width, int(h * scale))
+    return cv2.resize(image, new_dim, interpolation=cv2.INTER_AREA)
+
 
 def get_angle(p1, p2):
     dx = p2[0] - p1[0]
@@ -160,7 +193,10 @@ async def process_image(file: UploadFile, category: str, id: int):
     if cv2_image is None:
         raise ValueError("Failed to convert image to OpenCV format")
 
-    #Get the inamge of product by id
+    # scaling 
+    cv2_image = resize_image(cv2_image, target_width=640)
+
+    # Get the inamge of product by id
     project_root = Path(__file__).resolve().parents[3]  # go to the root reposetory
     product_path = project_root / "JFjewelery" / "Media" / "images" / "products" / str(id) / "tryon.png"
 
