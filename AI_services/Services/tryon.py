@@ -3,7 +3,8 @@ from PIL import Image
 from io import BytesIO
 import mediapipe as mp
 from mediapipe.tasks import python
-from mediapipe.tasks.python import vision  
+from mediapipe.tasks.python import vision
+from mediapipe.tasks.python.core.base_options import BaseOptions
 import cv2
 import numpy as np
 from PIL import Image
@@ -21,19 +22,19 @@ HandLandmarker = mp.tasks.vision.HandLandmarker
 HandLandmarkerOptions = mp.tasks.vision.HandLandmarkerOptions
 VisionRunningMode = mp.tasks.vision.RunningMode
 
-# path for task 
-task_path = Path(__file__).resolve().parents[2] / "ai_models" / "hand_landmarker.task"
+# Use an absolute path
+task_path = Path(__file__).parent / "hand_landmarker.task"
 
 print("Resolved model path:", task_path)
 
 if not task_path.exists():
     raise FileNotFoundError(f"Model file not found at: {task_path}")
 
-base_options = python.BaseOptions(model_asset_path='hand_landmarker.task')
 options = HandLandmarkerOptions(
-    base_options=base_options,
+    base_options=BaseOptions(model_asset_path=str(task_path.resolve())),
     running_mode=VisionRunningMode.IMAGE,
-    num_hands=2)
+    num_hands=2
+)
 
 detector = vision.HandLandmarker.create_from_options(options)
 
@@ -61,12 +62,11 @@ def analyze_image_parts(cv2_image):
 
     # Hands
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB))
-    with detector.detect(mp_image) as hands:
-        hands_results = hands.process(cv2_image)
-        results['hands'] = hands_results.multi_hand_landmarks
-        hand_landmarks = results.get('hands')
-        first_hand = hand_landmarks[0] if hand_landmarks and len(hand_landmarks) > 0 else None
-        print("First hand landmarks:", first_hand)
+    hands_results = detector.detect(mp_image)
+    results['hands'] = hands_results.hand_landmarks
+    hand_landmarks = results.get('hands')
+    first_hand = hand_landmarks[0] if hand_landmarks and len(hand_landmarks) > 0 else None
+    print("First hand landmarks:", first_hand)
 
     # Face mesh
     with mp_face.FaceMesh(static_image_mode=True) as face:
