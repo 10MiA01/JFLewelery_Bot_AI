@@ -43,6 +43,13 @@ def pil_to_cv2(pil_image: Image.Image) -> np.ndarray:
     # PIL (RGB) -> NumPy array (BGR)
     return cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
 
+def pil_to_cv2_alpha(pil_image: Image.Image) -> np.ndarray:
+    """Convert PIL image to OpenCV format, preserving alpha channel if present."""
+    pil_image = pil_image.convert("RGBA")  # ensure 4 channels
+    rgba = np.array(pil_image)
+    # Convert RGBA (PIL) → BGRA (OpenCV)
+    return cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA)
+
 def find_group_by_category(category):
     for group, categories in CategoryTryOnDict.items():
         if category in categories:
@@ -118,18 +125,61 @@ def get_scale(p1, p2, base_length):
     scale = dist / base_length
     return scale
 
-def rotate_and_scale_image(img, angle, scale):
-    (h, w) = img.shape[:2]
-    center = (w // 2, h // 2)
-    M = cv2.getRotationMatrix2D(center, angle, scale)    # Matrix for 2D rotate and scale
-    rotated_scaled = cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)  # Apply the matrix
-    return rotated_scaled
+def autocrop_image(image, border = 0):
+    # Get the bounding box
+    bbox = image.getbbox()
+
+    # Crop the image to the contents of the bounding box
+    image = image.crop(bbox)
+
+    # Determine the width and height of the cropped image
+    (width, height) = image.size
+
+    # Add border
+    width += border * 2
+    height += border * 2
+    
+    # Create a new image object for the output image
+    cropped_image = Image.new("RGBA", (width, height), (0,0,0,0))
+
+    # Paste the cropped image onto the new image
+    cropped_image.paste(image, (border, border))
+
+    # Done!
+    return cropped_image
+
+
+def rotate_and_scale_image(image, angle, scale):
+    # image — PIL Image с альфа-каналом
+    w, h = image.size
+    image = image.resize((int(w * scale), int(h * scale)), resample=Image.LANCZOS)
+    image = image.rotate(angle, expand=True, resample=Image.BICUBIC)
+    
+    # Cut transparent borders
+    cropped = autocrop_image(image, 0)
+    return cropped
+    
+
+def get_center_of_image(image):
+    h, w = image.size
+    hc = h // 2
+    wc = w // 2
+    return hc, wc
+
+def get_x_axis_of_image (image):
+    w, _ = image.size
+    return w // 2
+
+def get_y_axis_of_image (image):
+    _, h = image.size
+    return h // 2
 
 def overlay_image_alpha(background, overlay, x, y):
     """
     background — base image (OpenCV, BGR)
     overlay — PNG image (BGRA) with transparency
     x, y — coordinates of centre for paste - counted from landmarks
+    image center will paste in x, y
     """
     bh, bw = background.shape[:2]
     oh, ow = overlay.shape[:2]
@@ -203,9 +253,8 @@ async def process_image(file: UploadFile, category: str, id: int):
     if not product_path.exists():
         raise FileNotFoundError(f"Overlay image not found at: {product_path}")
 
-    overlay_image = cv2.imread(str(product_path), cv2.IMREAD_UNCHANGED)
-    if overlay_image is None:
-        raise ValueError(f"Failed to load image at path: {product_path}")
+    overlay_image = Image.open(product_path).convert("RGBA")
+    
 
     print("Resolved product path:", product_path)
 
@@ -233,25 +282,25 @@ async def process_image(file: UploadFile, category: str, id: int):
             h, w, _ = cv2_image.shape # Get real parametrs of image
 
             if category == "Earrings":              # Landmark-234 left, 454 right
-                x_left = int(landmarks[234].x * w)       # Left ear
-                y_left = int(landmarks[234].y * h)
-                x_left_neck = int(landmarks[200].x * w)     # Left neck
-                y_left_neck = int(landmarks[200].y * h)
+                x_left = int(landmarks[162].x * w)       # Left ear up
+                y_left = int(landmarks[162].y * h)
+                x_left_down = int(landmarks[132].x * w)     # Left ear down
+                y_left_down = int(landmarks[132].y * h)
 
-                x_right = int(landmarks[454].x * w)       # Right ear
-                y_right = int(landmarks[454].y * h)
-                x_right_neck = int(landmarks[430].x * w)     # Right neck
-                y_right_neck = int(landmarks[430].y * h)
+                x_right = int(landmarks[389].x * w)       # Right ear up
+                y_right = int(landmarks[389].y * h)
+                x_right_down = int(landmarks[361].x * w)     # Right ear down 
+                y_right_down = int(landmarks[361].y * h)
                 
-                # coordinates
+                # coordinates for angle and scale
                 pl1 = (x_left, y_left)                  # Left ear
-                pl2 = (x_left_neck, y_left_neck)        # Left neck
+                pl2 = (x_left_down, y_left_down)        # Left down
                 pr1 = (x_right, y_right)                # Right ear
-                pr2 = (x_right_neck, y_right_neck)      # Right neck
+                pr2 = (x_right_down, y_right_down)      # Right down
 
-                # angles
-                angle_left = get_angle(pl1, pl2)
-                angle_right = get_angle(pr1, pr2)
+                # angles = 0, usual earring go down because of gravity
+                angle_left = 0
+                angle_right = 0
 
                 # scale
                 scale_left = get_scale(pl1, pl2, w)
@@ -261,9 +310,42 @@ async def process_image(file: UploadFile, category: str, id: int):
                 transform_left = rotate_and_scale_image(overlay_image, angle_left, scale_left)
                 transform_right = rotate_and_scale_image(overlay_image, angle_right, scale_right)
 
+                # check
+                print("Left transform size:", transform_left.size)
+                print("Right transform size:", transform_right.size)
+
+
+                # coorditates to paste
+                x_offset = int(0.015 * w)
+                hl, wl = get_center_of_image(transform_left)
+                hr, wr = get_center_of_image(transform_right)
+
+                # left ear
+                xp_left_up = int(landmarks[93].x * w)       # Up
+                yp_left_up = int(landmarks[93].y * h)
+                xp_left_down = int(landmarks[132].x * w)     # Down
+                yp_left_down = int(landmarks[132].y * h)
+
+                xp_left = xp_left_down - x_offset
+                yp_left = yp_left_down - abs(yp_left_up - yp_left_down) // 4 + hl
+
+                # right ear
+                xp_right_up = int(landmarks[323].x * w)       # Up
+                yp_right_up = int(landmarks[323].y * h)
+                xp_right_down = int(landmarks[361].x * w)     # Down
+                yp_right_down = int(landmarks[361].y * h)
+
+                xp_right = xp_right_down + x_offset 
+                yp_right = yp_right_down - abs(yp_right_up - yp_right_down) // 4 + hr
+
+                # convert product in cv2
+                cv2_left =  pil_to_cv2_alpha(transform_left)
+                cv2_right =  pil_to_cv2_alpha(transform_right)
+
+
                 # paste the image
-                output_left = overlay_image_alpha(cv2_image, transform_left, x_left, y_left)
-                output_right = overlay_image_alpha(output_left, transform_right, x_right, y_right)
+                output_left = overlay_image_alpha(cv2_image, cv2_left, xp_left, yp_left)
+                output_right = overlay_image_alpha(output_left, cv2_right, xp_right, yp_right)
 
                 output_image = output_right
 
@@ -424,7 +506,7 @@ async def process_image(file: UploadFile, category: str, id: int):
                 best_score = score
                 best_hand = hand_landmarks
             
-            landmarks_ = best_hand.landmark # relative points
+            landmarks = best_hand.landmark # relative points
             h, w, _ = cv2_image.shape # Get real parametrs of image
 
             if category == "Rings":              
