@@ -104,7 +104,6 @@ def resize_image(image, target_width=640):
     new_dim = (target_width, int(h * scale))
     return cv2.resize(image, new_dim, interpolation=cv2.INTER_AREA)
 
-
 def get_angle(p1, p2):
     dx = p2[0] - p1[0]
     dy = p2[1] - p1[1]
@@ -145,12 +144,10 @@ def autocrop_image(image, border = 0):
     # Paste the cropped image onto the new image
     cropped_image.paste(image, (border, border))
 
-    # Done!
     return cropped_image
 
-
 def rotate_and_scale_image(image, angle, scale):
-    # image — PIL Image с альфа-каналом
+    # image — PIL Image with alpha channel
     w, h = image.size
     image = image.resize((int(w * scale), int(h * scale)), resample=Image.LANCZOS)
     image = image.rotate(angle, expand=True, resample=Image.BICUBIC)
@@ -159,7 +156,6 @@ def rotate_and_scale_image(image, angle, scale):
     cropped = autocrop_image(image, 0)
     return cropped
     
-
 def get_center_of_image(image):
     h, w = image.size
     hc = h // 2
@@ -253,8 +249,8 @@ async def process_image(file: UploadFile, category: str, id: int):
     if not product_path.exists():
         raise FileNotFoundError(f"Overlay image not found at: {product_path}")
 
-    overlay_image = Image.open(product_path).convert("RGBA")
-    
+    # working with as pil image and convert  to cv2 right before paste
+    overlay_image = Image.open(product_path).convert("RGBA")    
 
     print("Resolved product path:", product_path)
 
@@ -281,73 +277,85 @@ async def process_image(file: UploadFile, category: str, id: int):
             landmarks = face_results.multi_face_landmarks[0].landmark # relative points
             h, w, _ = cv2_image.shape # Get real parametrs of image
 
-            if category == "Earrings":              # Landmark-234 left, 454 right
-                x_left = int(landmarks[162].x * w)       # Left ear up
-                y_left = int(landmarks[162].y * h)
-                x_left_down = int(landmarks[132].x * w)     # Left ear down
-                y_left_down = int(landmarks[132].y * h)
+            if category == "Earrings":             
+                #check if ear is visible
+                x_center = landmarks[1].x
+                x_left_ear = landmarks[234].x
+                x_right_ear = landmarks[454].x
 
-                x_right = int(landmarks[389].x * w)       # Right ear up
-                y_right = int(landmarks[389].y * h)
-                x_right_down = int(landmarks[361].x * w)     # Right ear down 
-                y_right_down = int(landmarks[361].y * h)
-                
-                # coordinates for angle and scale
-                pl1 = (x_left, y_left)                  # Left ear
-                pl2 = (x_left_down, y_left_down)        # Left down
-                pr1 = (x_right, y_right)                # Right ear
-                pr2 = (x_right_down, y_right_down)      # Right down
+                # distances
+                dist_left = abs(x_left_ear - x_center)
+                dist_right = abs(x_right_ear - x_center)
+
+                threshold = 0.09
+
+                # Flags of visibility
+                LEFT_VISIBLE = dist_left + threshold > dist_right 
+                RIGHT_VISIBLE = dist_right + threshold  > dist_left 
 
                 # angles = 0, usual earring go down because of gravity
-                angle_left = 0
-                angle_right = 0
+                angle = 0
 
-                # scale
-                scale_left = get_scale(pl1, pl2, w)
-                scale_right = get_scale(pr1, pr2, w)
-
-                # transform
-                transform_left = rotate_and_scale_image(overlay_image, angle_left, scale_left)
-                transform_right = rotate_and_scale_image(overlay_image, angle_right, scale_right)
-
-                # check
-                print("Left transform size:", transform_left.size)
-                print("Right transform size:", transform_right.size)
-
-
-                # coorditates to paste
                 x_offset = int(0.015 * w)
-                hl, wl = get_center_of_image(transform_left)
-                hr, wr = get_center_of_image(transform_right)
 
                 # left ear
-                xp_left_up = int(landmarks[93].x * w)       # Up
-                yp_left_up = int(landmarks[93].y * h)
-                xp_left_down = int(landmarks[132].x * w)     # Down
-                yp_left_down = int(landmarks[132].y * h)
+                if LEFT_VISIBLE:
+                    x_left = int(landmarks[162].x * w)       # Left ear up
+                    y_left = int(landmarks[162].y * h)
+                    x_left_down = int(landmarks[132].x * w)     # Left ear down
+                    y_left_down = int(landmarks[132].y * h)
+                    # coordinates for angle and scale
+                    pl1 = (x_left, y_left)                  # Left ear
+                    pl2 = (x_left_down, y_left_down)        # Left down
+                    # scale
+                    scale_left = get_scale(pl1, pl2, w)
+                    # transform
+                    transform_left = rotate_and_scale_image(overlay_image, angle, scale_left)
+                    # check
+                    print("Left transform size:", transform_left.size)
+                    # coorditates to paste                
+                    hl, wl = get_center_of_image(transform_left)
+                    xp_left_up = int(landmarks[93].x * w)       # Up
+                    yp_left_up = int(landmarks[93].y * h)
+                    xp_left_down = int(landmarks[132].x * w)     # Down
+                    yp_left_down = int(landmarks[132].y * h)
 
-                xp_left = xp_left_down - x_offset
-                yp_left = yp_left_down - abs(yp_left_up - yp_left_down) // 4 + hl
+                    xp_left = xp_left_down - x_offset
+                    yp_left = yp_left_down - abs(yp_left_up - yp_left_down) // 4 + hl
+                    # convert product in cv2
+                    cv2_left =  pil_to_cv2_alpha(transform_left)
+                    # paste the image
+                    cv2_image = overlay_image_alpha(cv2_image, cv2_left, xp_left, yp_left)
 
-                # right ear
-                xp_right_up = int(landmarks[323].x * w)       # Up
-                yp_right_up = int(landmarks[323].y * h)
-                xp_right_down = int(landmarks[361].x * w)     # Down
-                yp_right_down = int(landmarks[361].y * h)
+                if RIGHT_VISIBLE:
+                    x_right = int(landmarks[389].x * w)       # Right ear up
+                    y_right = int(landmarks[389].y * h)
+                    x_right_down = int(landmarks[361].x * w)     # Right ear down 
+                    y_right_down = int(landmarks[361].y * h)
+                    # coordinates for angle and scale
+                    pr1 = (x_right, y_right)                # Right ear
+                    pr2 = (x_right_down, y_right_down)      # Right down
+                    # scale
+                    scale_right = get_scale(pr1, pr2, w)
+                    # transform
+                    transform_right = rotate_and_scale_image(overlay_image, angle, scale_right)
+                    # check
+                    print("Right transform size:", transform_right.size)
+                    # coorditates to paste
+                    hr, wr = get_center_of_image(transform_right)
+                    xp_right_up = int(landmarks[323].x * w)       # Up
+                    yp_right_up = int(landmarks[323].y * h)
+                    xp_right_down = int(landmarks[361].x * w)     # Down
+                    yp_right_down = int(landmarks[361].y * h)
 
-                xp_right = xp_right_down + x_offset 
-                yp_right = yp_right_down - abs(yp_right_up - yp_right_down) // 4 + hr
-
-                # convert product in cv2
-                cv2_left =  pil_to_cv2_alpha(transform_left)
-                cv2_right =  pil_to_cv2_alpha(transform_right)
-
-
-                # paste the image
-                output_left = overlay_image_alpha(cv2_image, cv2_left, xp_left, yp_left)
-                output_right = overlay_image_alpha(output_left, cv2_right, xp_right, yp_right)
-
-                output_image = output_right
+                    xp_right = xp_right_down + x_offset 
+                    yp_right = yp_right_down - abs(yp_right_up - yp_right_down) // 4 + hr
+                    # convert product in cv2
+                    cv2_right =  pil_to_cv2_alpha(transform_right)
+                    # paste the image
+                    cv2_image = overlay_image_alpha(cv2_image, cv2_right, xp_right, yp_right)
+         
+                output_image = cv2_image
 
             elif category == "Necklaces": 
                 x1 = int(landmarks[152].x * w)        # Landmark chin-152
