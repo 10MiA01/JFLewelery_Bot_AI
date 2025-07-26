@@ -104,6 +104,9 @@ def resize_image(image, target_width=640):
     new_dim = (target_width, int(h * scale))
     return cv2.resize(image, new_dim, interpolation=cv2.INTER_AREA)
 
+def flip_image_horizontal(pil_image: Image.Image) -> Image.Image:
+    return pil_image.transpose(Image.FLIP_LEFT_RIGHT)
+
 def get_angle(p1, p2):
     dx = p2[0] - p1[0]
     dy = p2[1] - p1[1]
@@ -357,6 +360,84 @@ async def process_image(file: UploadFile, category: str, id: int):
          
                 output_image = cv2_image
 
+            elif category == "Ear_Cuffs": 
+                #check what ear is visible
+                x_center = landmarks[1].x
+                x_left_ear = landmarks[234].x
+                x_right_ear = landmarks[454].x
+
+                # distances
+                dist_left = abs(x_left_ear - x_center)
+                dist_right = abs(x_right_ear - x_center)
+
+                threshold = 0.09
+
+                # Flags of visibility
+                visibility_flag = None
+                if dist_left >= dist_right:
+                    visibility_flag = "left_ear"
+                else:
+                    visibility_flag = "right_ear" 
+                
+                if visibility_flag == "left_ear":
+                    x_left = int(landmarks[162].x * w)       # Left ear up
+                    y_left = int(landmarks[162].y * h)
+                    x_left_down = int(landmarks[132].x * w)     # Left ear down
+                    y_left_down = int(landmarks[132].y * h)
+                    # coordinates for angle and scale
+                    pl1 = (x_left, y_left)                  # Left ear
+                    pl2 = (x_left_down, y_left_down)        # Left down
+                    # scale
+                    scale_left = get_scale(pl1, pl2, w)
+                    # angles
+                    angle_left = (pl1, pl2)
+                    # transform
+                    transform_left = rotate_and_scale_image(overlay_image, angle_left, scale_left)
+                    # check
+                    print("Left transform size:", transform_left.size)
+                    # coorditates to paste                
+                    wl = get_x_axis_of_image(transform_left)
+                    xp_left_center = int(x_left_down - wl)              # center
+                    yp_left_center = int((y_left + y_left_down) / 2)
+                    # convert product in cv2
+                    cv2_left =  pil_to_cv2_alpha(transform_left)
+                    # paste the image
+                    cv2_image = overlay_image_alpha(cv2_image, cv2_left, xp_left_center, yp_left_center)
+
+                    output_image = cv2_image
+
+                elif visibility_flag == "right_ear":
+                    x_right = int(landmarks[389].x * w)       # Right ear up
+                    y_right = int(landmarks[389].y * h)
+                    x_right_down = int(landmarks[361].x * w)     # Right ear down 
+                    y_right_down = int(landmarks[361].y * h)
+                    # coordinates for angle and scale
+                    pr1 = (x_right, y_right)                # Right ear
+                    pr2 = (x_right_down, y_right_down)      # Right down
+                    # mirror lrft caff
+                    mirrored_image = flip_image_horizontal(overlay_image)
+                    # scale
+                    scale_right = get_scale(pr1, pr2, w)
+                    # angles
+                    angle_right = (pr1, pr2)
+                    # transform
+                    transform_right = rotate_and_scale_image(mirrored_image, angle_right, scale_right)
+                    # check
+                    print("Right transform size:", transform_right.size)
+                    # coorditates to paste                
+                    wl = get_x_axis_of_image(transform_right)
+                    xp_right_center = int(x_right_down + wl)              # center
+                    yp_right_center = int((y_right + y_right_down) / 2)
+                    # convert product in cv2
+                    cv2_right =  pil_to_cv2_alpha(transform_right)
+                    # paste the image
+                    cv2_image = overlay_image_alpha(cv2_image, cv2_right, xp_right_center, yp_right_center)
+
+                    output_image = cv2_image
+
+                else:
+                    output_image = cv2_image 
+
             elif category == "Necklaces": 
                 x1 = int(landmarks[152].x * w)        # Landmark chin-152
                 y1 = int(landmarks[152].y * h)
@@ -455,47 +536,7 @@ async def process_image(file: UploadFile, category: str, id: int):
                 
                 output_image = output
 
-            elif category == "Ear_Cuffs":                # Landmark-234 left, 454 right
-                # Left ear
-                x_left = int(landmarks[234].x * w)
-                y_left = int(landmarks[234].y * h)
-                x_left_up = int(landmarks[127].x * w)
-                y_left_up = int(landmarks[127].y * h)
-                x_left_center = (x_left + x_left_up) // 2       # Center of the ear
-                y_left_center = (y_left + y_left_up) // 2
-
-                # Right ear
-                x_right = int(landmarks[454].x * w)
-                y_right = int(landmarks[454].y * h)
-                x_right_up = int(landmarks[356].x * w)
-                y_right_up = int(landmarks[356].y * h)
-                x_right_center = (x_right + x_right_up) // 2
-                y_right_center = (y_right + y_right_up) // 2
-
-
-                # coordinates
-                p1_left = (x_left_up, y_left_up)
-                p2_left = (x_left, y_left)
-                p1_right = (x_right_up, y_right_up)
-                p2_right = (x_right, y_right)
-
-                # angles
-                angle_left = (p1_left, p2_left)
-                angle_right = (p1_right, p2_right)
-
-                # scale
-                scale_left =(p1_left, p2_left, w)
-                scale_right = (p1_right, p2_right, w)
-
-                # transform
-                transform_left = rotate_and_scale_image(overlay_image, angle_left, scale_left)
-                transform_right = rotate_and_scale_image(overlay_image, angle_right, scale_right)
-
-                # paste the image
-                output_left = overlay_image_alpha(cv2_image, transform_left, x_left_center, y_left_center)
-                output_right = overlay_image_alpha(output_left, transform_right, x_right_center, y_right_center)
-
-                output_image = output_right
+            
         
     # hands
     if selected_group == "hands":
