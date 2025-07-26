@@ -438,77 +438,46 @@ async def process_image(file: UploadFile, category: str, id: int):
                 else:
                     output_image = cv2_image 
 
-            elif category == "Necklaces": 
-                x1 = int(landmarks[152].x * w)        # Landmark chin-152
-                y1 = int(landmarks[152].y * h)
-                x2 = int(landmarks[200].x * w)       # Landmark chin-152
-                y2 = int(landmarks[200].y * h)
+            elif category in [ "Necklaces", "Chokers", "Pendants"]: 
+                # angles = 0, usual necklace go down because of gravity
+                angle = 0
 
+                # y offset
+                if category == "Necklaces":
+                    y_offset = int(0.1 * w)
+                else:
+                    y_offset = int(0.1 * w)
+
+                # x offset
+                x_nose_bridge = int(landmarks[1].x * w)
+                x_chin = int(landmarks[152].x * w)
+                head_tilt = x_nose_bridge - x_chin
+
+                # neck left
+                x1 = int(landmarks[58].x * w)        
+                y1 = int(landmarks[58].y * h)
+                # neck right
+                x2 = int(landmarks[288].x * w)       
+                y2 = int(landmarks[288].y * h)
                 # coordinates
                 p1 = (x1, y1)
                 p2 = (x2, y2)
-
-                # angles
-                angle = get_angle(p1, p2)
-
                 # scale
-                scale = get_scale(p1, p2, w)
-                
+                scale = get_scale(p1, p2, w) * 1.1 # necklace should be a little wider than neck
                 # transform
                 transform = rotate_and_scale_image(overlay_image, angle, scale)
-
+                # coorditates to paste    
+                hc = get_y_axis_of_image(transform)       
+                y_chin = int(landmarks[152].y * h) 
+                xp_center = (x1 + x2) // 2 - int(head_tilt * 0.9)
+                yp_center = abs((y1 + y2) // 2) + hc + y_offset
+                if y_chin + hc  > yp_center:
+                    yp_center = y_chin + hc 
+          
+                # convert product in cv2
+                cv2_transform =  pil_to_cv2_alpha(transform)
                 # paste the image
-                output = overlay_image_alpha(cv2_image, transform, x2, y2)
-
-                output_image = output
-
-            elif category == "Chokers":            
-                x1 = int(landmarks[200].x * w)  # Left neck point
-                y1 = int(landmarks[200].y * h)
-                x2 = int(landmarks[430].x * w)  # Right neck point
-                y2 = int(landmarks[430].y * h)
-                x_center = (x1 + x2) // 2       # Center of the neck
-                y_center = (y1 + y2) // 2
-
-                # coordinates
-                p1 = (x1, y1)
-                p2 = (x2, y2)
-
-                # angles
-                angle = get_angle(p1, p2)
-                
-                # scale
-                scale = get_scale(p1, p2, w)
-                
-                # transform
-                transform = rotate_and_scale_image(overlay_image, angle, scale)
-
-                # paste the image
-                output = overlay_image_alpha(cv2_image, transform, x_center, y_center)
-
-                output_image = output
-
-            elif category == "Pendants":            # Landmark-152
-                x1 = int(landmarks[152].x * w)
-                y1 = int(landmarks[152].y * h)
-                x2 = x1
-                y2 = int((landmarks[152].y + 0.05) * h)  # Little lower on the neck
-
-                # coordinates
-                p1 = (x1, y1)
-                p2 = (x2, y2)
-
-                # angles
-                angle = get_angle(p1, p2)
-                
-                # scale
-                scale = get_scale(p1, p2, w)
-                
-                # transform
-                transform = rotate_and_scale_image(overlay_image, angle, scale)
-
-                # paste the image
-                output = overlay_image_alpha(cv2_image, transform, x2, y2)
+                output = overlay_image_alpha(cv2_image, cv2_transform, xp_center, yp_center)
 
                 output_image = output
 
