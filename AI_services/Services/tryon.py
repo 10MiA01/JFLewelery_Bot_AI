@@ -179,7 +179,7 @@ def get_y_axis_of_image (image):
     _, h = image.size
     return h // 2
 
-def get_forearm_direction(landmarks, w, h):
+def get_forearm_direction_hand(landmarks, w, h):
     wrist = landmarks[0]
     middle_finger_base = landmarks[9]
 
@@ -203,6 +203,30 @@ def get_forearm_direction(landmarks, w, h):
     fy /= length
 
     return fx, fy
+
+def get_forearm_direction_pose(landmark_wrist, landmark_elbow, w, h):
+    # Pose landmarks 
+    wrist = landmark_wrist
+    elbow = landmark_wrist
+
+    wx = int(wrist.x * w)
+    wy = int(wrist.y * h)
+    ex = int(elbow.x * w)
+    ey = int(elbow.y * h)
+
+    # Vector from wrist to elbow
+    dx = ex - wx
+    dy = ey - wy
+
+    # normilize vector
+    length = math.hypot(dx, dy)
+    if length == 0:
+        return (0, 0)
+    fx = dx / length
+    fy = dy / length
+
+    return fx, fy
+
 
 
 
@@ -262,6 +286,29 @@ def get_hand_score(landmarks, image_shape):
 
     return score
 
+def get_pose_part_score(landmarks, indices, image_size):
+    h, w = image_size
+
+    xs, ys = [], []
+    visible_points = 0
+
+    for i in indices:
+        lm = landmarks[i]
+        if 0 <= lm.x <= 1 and 0 <= lm.y <= 1:
+            visible_points += 1
+            xs.append(lm.x)
+            ys.append(lm.y)
+
+    if not xs or not ys:
+        return 0  # no visible points
+
+    area = (max(xs) - min(xs)) * (max(ys) - min(ys))
+
+    # number of points and area
+    score = visible_points + area * 100
+    return score
+
+
 # To Do sketch
 async def process_image(file: UploadFile, category: str, id: int):
 
@@ -298,12 +345,170 @@ async def process_image(file: UploadFile, category: str, id: int):
 
     # General pose analysis
     results = analyze_image_parts(cv2_image)
+    body_is_present = results['pose'] is not None
 
-    if not is_part_present(results, selected_group):
-        raise ValueError(f"Photo not suitable for a category {category}, body part not found")
+    # !!!!! TO REDO
+    # if not is_part_present(results, selected_group):
+    #     raise ValueError(f"Photo not suitable for a category {category}, body part not found")
+
+    # Determine if we can use pose instead of fallback
+    use_pose_for_neck = category in ["Necklaces", "Chokers", "Pendants"] and body_is_present
+    use_pose_for_bracelet = category == "Bracelets" and body_is_present
+
+    # body
+    if selected_group == "body" or \
+   (selected_group == "face" and use_pose_for_neck) or \
+   (selected_group == "hands" and use_pose_for_bracelet):
+        with mp_pose.Pose(static_image_mode=True) as pose:
+            pose_results = pose.process(cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB))
+
+        if not pose_results.pose_landmarks:
+            raise ValueError("Body not recognized")
+
+        landmarks = pose_results.pose_landmarks.landmark # relative points
+        h, w, _ = cv2_image.shape # Get real parametrs of image
+
+        if category in ["Brooches", "Pins", "Chains", "Necklaces", "Chokers", "Pendants"]:
+            # Common calculations for pose
+            x_left = int(landmarks[12].x * w)       # Left shoulder
+            y_left = int(landmarks[12].y * h)
+            x_left_pelvis = int(landmarks[24].x * w)     # Left pelvis
+            y_left_pelvis  = int(landmarks[24].y * h)
+
+            x_right = int(landmarks[11].x * w)      # Right shoulder
+            y_right = int(landmarks[11].y * h)
+            x_right_pelvis  = int(landmarks[23].x * w)     # Right pelvis
+            y_right_pelvis  = int(landmarks[23].y * h)
+
+            # Axis shoulder
+            x_axis_shoulder = int((x_left + x_right) / 2)
+            y_axis_shoulder = int((y_left + y_right) / 2)
+
+            # Axis pelvis
+            x_axis_pelvis = int((x_left_pelvis + x_right_pelvis) / 2)
+            y_axis_pelvis = int((y_left_pelvis + y_right_pelvis) / 2)
+
+            # 3/4 shoulders
+            x_34_shoulder = int((x_axis_shoulder + x_right) / 2)
+            y_34_shoulder = int((y_axis_shoulder + y_right) / 2)
+            # coordinates
+            p1 = (x_axis_shoulder, y_axis_shoulder)
+            p2 = (x_axis_pelvis, y_axis_pelvis)
+            p3 = (x_34_shoulder, y_34_shoulder)
+
+            # angles
+            angle = get_angle_y(p1, p2)
+
+        if category in ["Brooches", "Pins"]:  
+            # scale
+            scale = get_scale(p1, p3, w)
+
+            # transform
+            transform = rotate_and_scale_image(overlay_image, angle, scale)
+
+            # convert product in cv2
+            cv2_transform =  pil_to_cv2_alpha(transform)
+            
+            # 3/4 of the chest
+            x_chest = int(x_right - (x_right - x_left) * 0.25)
+            y_chest = int(y_right + (y_right_pelvis - y_right)* 0.2)
+
+            # paste the image
+            output = overlay_image_alpha(cv2_image, cv2_transform, x_chest, y_chest)
+
+            output_image = output
+            
+        elif category in ["Chains", "Necklaces", "Chokers", "Pendants"]: 
+            #scale
+            scale = get_scale(p1, p3, w)
+            scale = scale * 1.75
+
+            # transform
+            transform = rotate_and_scale_image(overlay_image, angle, scale)
+
+            # convert product in cv2
+            cv2_transform =  pil_to_cv2_alpha(transform)
+            # paste points
+            x_base = int((landmarks[11].x + landmarks[12].x) / 2 * w)
+            y_base = int((landmarks[11].y + landmarks[12].y) / 2 * h)
+            y_top = y_base - int(0.05 * h)     
+
+            # paste the image
+            output = overlay_image_alpha(cv2_image, cv2_transform, x_base, y_top)
+
+            output_image = output  
+
+        elif category == "Bracelets":
+            # which hand is visible better
+            left_arm = [11, 13, 15]   
+            right_arm = [12, 14, 16]
+
+            left_score = get_pose_part_score(landmarks, left_arm, image.size)
+            right_score = get_pose_part_score(landmarks, right_arm, image.size)
+
+            better_arm = "left" if left_score > right_score else "right"
+
+            if better_arm == "left":
+                # left arm
+                x1 = int(landmarks[13].x * w)       # Landmark elbow 
+                y1 = int(landmarks[13].y * h)
+                x2 = int(landmarks[15].x * w)       # Landmark wrist
+                y2 = int(landmarks[15].y * h)
+                # coordinates
+                p1 = (x1, y1)
+                p2 = (x2, y2)
+                # angles
+                angle = get_angle_y(p1, p2)
+                #scale
+                scale = get_scale(p1, p2, w)
+                scale = scale * 0.4
+                # vector
+                fx, fy = get_forearm_direction_pose(landmarks[15], landmarks[13], w, h)
+                # transform
+                transform = rotate_and_scale_image(overlay_image, angle, scale)
+                # convert product in cv2
+                cv2_transform =  pil_to_cv2_alpha(transform)
+                # paste points             
+                x_shift = int(x2 + fx * 30)
+                y_shift = int(y2 + fy * 30)     
+                # paste the image
+                output = overlay_image_alpha(cv2_image, cv2_transform, x_shift, y_shift)
+
+                output_image = output  
+            else:
+                # right arm
+                x1 = int(landmarks[14].x * w)       # Landmark elbow 
+                y1 = int(landmarks[14].y * h)
+                x2 = int(landmarks[16].x * w)       # Landmark wrist
+                y2 = int(landmarks[16].y * h)
+                # coordinates
+                p1 = (x1, y1)
+                p2 = (x2, y2)
+                # angles
+                angle = get_angle_y(p1, p2)
+                #scale
+                scale = get_scale(p1, p2, w)
+                # vector
+                fx, fy = get_forearm_direction_pose(landmarks[16], landmarks[14], w, h)
+                # transform
+                transform = rotate_and_scale_image(overlay_image, angle, scale)
+                # convert product in cv2
+                cv2_transform =  pil_to_cv2_alpha(transform)
+                # paste points             
+                x_shift = int(x2 + fx * 30)
+                y_shift = int(y2 + fy * 30)     
+                # paste the image
+                output = overlay_image_alpha(cv2_image, cv2_transform, x_shift, y_shift)
+
+                output_image = output
+
+
+
 
     # face
-    if selected_group == "face":
+    
+    
+    elif selected_group == "face":
         with mp_face.FaceMesh(static_image_mode=True, refine_landmarks=True) as face_mesh:
             face_results = face_mesh.process(cv2_image)
 
@@ -538,10 +743,9 @@ async def process_image(file: UploadFile, category: str, id: int):
                 
                 output_image = output
 
-            
-        
+                
     # hands
-    if selected_group == "hands":
+    elif selected_group == "hands":
         with mp.solutions.hands.Hands(static_image_mode=True, max_num_hands=2) as hands:
             hand_results = hands.process(cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB))
 
@@ -585,9 +789,7 @@ async def process_image(file: UploadFile, category: str, id: int):
                 output = overlay_image_alpha(cv2_image, cv2_transform, x_center, y_center)
 
                 output_image = output
-
-            
-            # To Do
+          
             elif category == "Bracelets": 
                 x1 = int(landmarks[9].x * w)       # Landmark middle finger-mcp-9
                 y1 = int(landmarks[9].y * h)
@@ -597,105 +799,30 @@ async def process_image(file: UploadFile, category: str, id: int):
                 y3 = int(landmarks[5].y * h)
                 x4 = int(landmarks[17].x * w)       # Landmark middle finger-mcp-9
                 y4 = int(landmarks[17].y * h)
-
                 # coordinates
                 p1 = (x1, y1)
                 p2 = (x2, y2)
                 p3 = (x3, y3)
                 p4 = (x4, y4)
-
                 # angles
                 angle = get_angle_y(p1, p2)
-
                 # scale
                 scale = get_scale(p3, p4, w)
-
                 # vector
-                fx, fy = get_forearm_direction(landmarks, w, h)
-                
+                fx, fy = get_forearm_direction_hand(landmarks, w, h)               
                 # transform
                 transform = rotate_and_scale_image(overlay_image, angle, scale)
                 # convert product in cv2
                 cv2_transform =  pil_to_cv2_alpha(transform)
-                # coorditates to paste
-                
-                # Get point for paste
+                # coorditates to paste               
                 x_shift = int(x2 + fx * 30)
                 y_shift = int(y2 + fy * 30)
-
                 # paste the image
                 output = overlay_image_alpha(cv2_image, cv2_transform, x_shift, y_shift)
 
                 output_image = output
 
-    # body
-    if selected_group == "body":
-        with mp_pose.Pose(static_image_mode=True) as pose:
-            pose_results = pose.process(cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB))
-
-        if not pose_results.pose_landmarks:
-            raise ValueError("Body not recognized")
-
-        landmarks = pose_results.pose_landmarks.landmark # relative points
-        h, w, _ = cv2_image.shape # Get real parametrs of image
-
-        # Common calculations for pose
-        x_left = int(landmarks[12].x * w)       # Left shoulder
-        y_left = int(landmarks[12].y * h)
-        x_left_pelvis = int(landmarks[24].x * w)     # Left pelvis
-        y_left_pelvis  = int(landmarks[24].y * h)
-
-        x_right = int(landmarks[11].x * w)      # Right shoulder
-        y_right = int(landmarks[11].y * h)
-        x_right_pelvis  = int(landmarks[23].x * w)     # Right pelvis
-        y_right_pelvis  = int(landmarks[23].y * h)
-
-        # Axis shoulder
-        x_axis_shoulder = int((x_left + x_right) / 2)
-        y_axis_shoulder = int((y_left + y_right) / 2)
-
-        # Axis pelvis
-        x_axis_pelvis = int((x_left_pelvis + x_right_pelvis) / 2)
-        y_axis_pelvis = int((y_left_pelvis + y_right_pelvis) / 2)
-
-        # coordinates
-        p1 = (x_axis_shoulder, y_axis_shoulder)
-        p2 = (x_axis_pelvis, y_axis_pelvis)
-
-        # angles
-        angle = get_angle_y(p1, p2)
-
-        # scale
-        scale = get_scale(p1, p2, w)
-
-        # transform
-        transform = rotate_and_scale_image(overlay_image, angle, scale)
-                
- 
-
-        # To Do
-        if category in ["Brooches", "Pins"]:              
-            # 3/4 of the chest
-            x_chest = int(x_right - (x_right - x_left) * 0.25)
-            y_chest = int(y_right + (y_right - y_right_pelvis)* 0.4)
-
-            # paste the image
-            output = overlay_image_alpha(cv2_image, transform, x_chest, y_chest)
-
-            output_image = output
-
-            
-        # To Do
-        elif category == "Chains": 
-            # paste points
-            x_base = int((landmarks[11].x + landmarks[12].x) / 2 * w)
-            y_base = int((landmarks[11].y + landmarks[12].y) / 2 * h)
-            y_top = y_base - int(0.05 * h)     
-
-            # paste the image
-            output = overlay_image_alpha(cv2_image, transform, x_base, y_top)
-
-            output_image = output  
+    
 
     # BGR to RBG
     output_image_rgb = cv2.cvtColor(output_image, cv2.COLOR_BGR2RGB)
