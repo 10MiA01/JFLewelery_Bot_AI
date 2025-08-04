@@ -107,7 +107,13 @@ def resize_image(image, target_width=640):
 def flip_image_horizontal(pil_image: Image.Image) -> Image.Image:
     return pil_image.transpose(Image.FLIP_LEFT_RIGHT)
 
-def get_angle(p1, p2):
+def get_angle_y(p1, p2):
+    dx = p2[0] - p1[0]
+    dy = p2[1] - p1[1]
+    angle = math.degrees(math.atan2(dx, dy))
+    return angle
+
+def get_angle_x(p1, p2):
     dx = p2[0] - p1[0]
     dy = p2[1] - p1[1]
     angle = math.degrees(math.atan2(dy, dx))
@@ -172,6 +178,33 @@ def get_x_axis_of_image (image):
 def get_y_axis_of_image (image):
     _, h = image.size
     return h // 2
+
+def get_forearm_direction(landmarks, w, h):
+    wrist = landmarks[0]
+    middle_finger_base = landmarks[9]
+
+    wx = int(wrist.x * w)
+    wy = int(wrist.y * h)
+    mx = int(middle_finger_base.x * w)
+    my = int(middle_finger_base.y * h)
+
+    dx = mx - wx
+    dy = my - wy
+
+    # vector inversion
+    fx = -dx
+    fy = -dy
+
+    # normilize vector
+    length = math.hypot(fx, fy)
+    if length == 0:
+        return (0, 0)
+    fx /= length
+    fy /= length
+
+    return fx, fy
+
+
 
 def overlay_image_alpha(background, overlay, x, y):
     """
@@ -390,7 +423,7 @@ async def process_image(file: UploadFile, category: str, id: int):
                     # scale
                     scale_left = get_scale(pl1, pl2, w)
                     # angles
-                    angle_left = (pl1, pl2)
+                    angle_left = get_angle_y(pl1, pl2)
                     # transform
                     transform_left = rotate_and_scale_image(overlay_image, angle_left, scale_left)
                     # check
@@ -419,7 +452,7 @@ async def process_image(file: UploadFile, category: str, id: int):
                     # scale
                     scale_right = get_scale(pr1, pr2, w)
                     # angles
-                    angle_right = (pr1, pr2)
+                    angle_right = get_angle_y(pr1, pr2)
                     # transform
                     transform_right = rotate_and_scale_image(mirrored_image, angle_right, scale_right)
                     # check
@@ -481,27 +514,27 @@ async def process_image(file: UploadFile, category: str, id: int):
 
                 output_image = output
 
-            elif category == "Hair_Accessories":            # Landmark-10
+            elif category == "Hair_Accessories":            
                 x1 = int(landmarks[10].x * w)
-                y1 = int((landmarks[10].y - 0.05) * h)  # little up, in hair
-                x2 = x1
-                y2 = int(landmarks[152].y * h)
-
+                y1 = int(landmarks[10].y * h)  # little up, in hair
+                x2 = int(landmarks[164].x * w)
+                y2 = int(landmarks[164].y * h)
                 # coordinates
                 p1 = (x1, y1)
                 p2 = (x2, y2)
-
                 # angles
-                angle = get_angle(p1, p2)
-                
+                angle = get_angle_y(p1, p2)                
                 # scale
-                scale = get_scale(p1, p2, w)
-                
+                scale = get_scale(p1, p2, w)                
                 # transform
                 transform = rotate_and_scale_image(overlay_image, angle, scale)
-
+                # coorditates to paste
+                xp = x1
+                yp = int((landmarks[10].y - 0.05) * h)
+                # convert product in cv2
+                cv2_transform =  pil_to_cv2_alpha(transform)
                 # paste the image
-                output = overlay_image_alpha(cv2_image, transform, x1, y1)
+                output = overlay_image_alpha(cv2_image, cv2_transform, xp, yp)
                 
                 output_image = output
 
@@ -528,28 +561,28 @@ async def process_image(file: UploadFile, category: str, id: int):
             h, w, _ = cv2_image.shape # Get real parametrs of image
 
             if category == "Rings":              
-                x1 = int(landmarks[10].x * w)        # Landmark middle finger-pip-10
-                y1 = int(landmarks[10].y * h)
+                x1 = int(landmarks[11].x * w)        # Landmark middle finger-pip-10
+                y1 = int(landmarks[11].y * h)
                 x2 = int(landmarks[9].x * w)       # Landmark middle finger-mcp-9
-                y2 = int(landmarks[9].y * h)
-                x_center = (x1 + x2) // 2       # Center 
-                y_center = (y1 + y2) // 2
-                
+                y2 = int(landmarks[9].y * h)                
                 # coordinates
                 p1 = (x1, y1)
                 p2 = (x2, y2)
-
                 # angles
-                angle = get_angle(p1, p2)
-
+                angle = get_angle_y(p1, p2)
                 # scale
-                scale = get_scale(p1, p2, w)
-                
+                scale = get_scale(p1, p2, w)                
                 # transform
                 transform = rotate_and_scale_image(overlay_image, angle, scale)
-
+                # convert product in cv2
+                cv2_transform =  pil_to_cv2_alpha(transform)
+                # coorditates to paste
+                x3 = int(landmarks[10].x * w)        # Landmark middle finger-pip-10
+                y3 = int(landmarks[10].y * h)
+                x_center = (x3 + x2) // 2       # Center 
+                y_center = (y3 + y2) // 2
                 # paste the image
-                output = overlay_image_alpha(cv2_image, transform, x_center, y_center)
+                output = overlay_image_alpha(cv2_image, cv2_transform, x_center, y_center)
 
                 output_image = output
 
@@ -557,28 +590,41 @@ async def process_image(file: UploadFile, category: str, id: int):
             # To Do
             elif category == "Bracelets": 
                 x1 = int(landmarks[9].x * w)       # Landmark middle finger-mcp-9
-                y2 = int(landmarks[9].y * h)
+                y1 = int(landmarks[9].y * h)
                 x2 = int(landmarks[0].x * w)       # Landmark wrist-0
                 y2 = int(landmarks[0].y * h)
+                x3 = int(landmarks[5].x * w)       # Landmark middle finger-mcp-9
+                y3 = int(landmarks[5].y * h)
+                x4 = int(landmarks[17].x * w)       # Landmark middle finger-mcp-9
+                y4 = int(landmarks[17].y * h)
 
                 # coordinates
                 p1 = (x1, y1)
                 p2 = (x2, y2)
+                p3 = (x3, y3)
+                p4 = (x4, y4)
 
                 # angles
-                angle = get_angle(p1, p2)
+                angle = get_angle_y(p1, p2)
 
                 # scale
-                scale = get_scale(p1, p2, w)
+                scale = get_scale(p3, p4, w)
+
+                # vector
+                fx, fy = get_forearm_direction(landmarks, w, h)
                 
                 # transform
                 transform = rotate_and_scale_image(overlay_image, angle, scale)
+                # convert product in cv2
+                cv2_transform =  pil_to_cv2_alpha(transform)
+                # coorditates to paste
                 
                 # Get point for paste
-                x_shift, y_shift = shift_along_angle(x1, y1, angle, 30)
+                x_shift = int(x2 + fx * 30)
+                y_shift = int(y2 + fy * 30)
 
                 # paste the image
-                output = overlay_image_alpha(cv2_image, transform, x_shift, y_shift)
+                output = overlay_image_alpha(cv2_image, cv2_transform, x_shift, y_shift)
 
                 output_image = output
 
@@ -617,7 +663,7 @@ async def process_image(file: UploadFile, category: str, id: int):
         p2 = (x_axis_pelvis, y_axis_pelvis)
 
         # angles
-        angle = get_angle(p1, p2)
+        angle = get_angle_y(p1, p2)
 
         # scale
         scale = get_scale(p1, p2, w)
