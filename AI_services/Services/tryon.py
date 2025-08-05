@@ -227,9 +227,6 @@ def get_forearm_direction_pose(landmark_wrist, landmark_elbow, w, h):
 
     return fx, fy
 
-
-
-
 def overlay_image_alpha(background, overlay, x, y):
     """
     background — base image (OpenCV, BGR)
@@ -309,8 +306,7 @@ def get_pose_part_score(landmarks, indices, image_size):
     return score
 
 
-# To Do sketch
-async def process_image(file: UploadFile, category: str, id: int):
+async def process_image_try_on(file: UploadFile, category: str, id: int):
 
     # Get the image from client
     try:
@@ -347,9 +343,17 @@ async def process_image(file: UploadFile, category: str, id: int):
     results = analyze_image_parts(cv2_image)
     body_is_present = results['pose'] is not None
 
-    # !!!!! TO REDO
-    # if not is_part_present(results, selected_group):
-    #     raise ValueError(f"Photo not suitable for a category {category}, body part not found")
+    # check if image is suatable
+    special_pose_categories = ["Necklaces", "Chokers", "Pendants", "Bracelets"]
+
+    image_is_suitable = (
+        is_part_present(results, selected_group) or 
+        (category in special_pose_categories and body_is_present)
+    )
+
+    if not image_is_suitable:
+        raise ValueError(f"Photo not suitable for a category {category}, body part not found")
+    
 
     # Determine if we can use pose instead of fallback
     use_pose_for_neck = category in ["Necklaces", "Chokers", "Pendants"] and body_is_present
@@ -426,12 +430,19 @@ async def process_image(file: UploadFile, category: str, id: int):
             # transform
             transform = rotate_and_scale_image(overlay_image, angle, scale)
 
-            # convert product in cv2
-            cv2_transform =  pil_to_cv2_alpha(transform)
+            
             # paste points
+            _, hp = transform.size
+            hl = get_y_axis_of_image(transform)
             x_base = int((landmarks[11].x + landmarks[12].x) / 2 * w)
             y_base = int((landmarks[11].y + landmarks[12].y) / 2 * h)
-            y_top = y_base - int(0.05 * h)     
+            if hp > 100:
+                y_top = y_base 
+            else:
+                y_top = y_base - hl    
+            
+            # convert product in cv2
+            cv2_transform =  pil_to_cv2_alpha(transform)
 
             # paste the image
             output = overlay_image_alpha(cv2_image, cv2_transform, x_base, y_top)
@@ -469,8 +480,8 @@ async def process_image(file: UploadFile, category: str, id: int):
                 # convert product in cv2
                 cv2_transform =  pil_to_cv2_alpha(transform)
                 # paste points             
-                x_shift = int(x2 + fx * 30)
-                y_shift = int(y2 + fy * 30)     
+                x_shift = int(x2 + fx * 50)
+                y_shift = int(y2 + fy * 50)     
                 # paste the image
                 output = overlay_image_alpha(cv2_image, cv2_transform, x_shift, y_shift)
 
@@ -495,8 +506,8 @@ async def process_image(file: UploadFile, category: str, id: int):
                 # convert product in cv2
                 cv2_transform =  pil_to_cv2_alpha(transform)
                 # paste points             
-                x_shift = int(x2 + fx * 30)
-                y_shift = int(y2 + fy * 30)     
+                x_shift = int(x2 + fx * 50)
+                y_shift = int(y2 + fy * 50)     
                 # paste the image
                 output = overlay_image_alpha(cv2_image, cv2_transform, x_shift, y_shift)
 
@@ -505,9 +516,7 @@ async def process_image(file: UploadFile, category: str, id: int):
 
 
 
-    # face
-    
-    
+    # face    
     elif selected_group == "face":
         with mp_face.FaceMesh(static_image_mode=True, refine_landmarks=True) as face_mesh:
             face_results = face_mesh.process(cv2_image)

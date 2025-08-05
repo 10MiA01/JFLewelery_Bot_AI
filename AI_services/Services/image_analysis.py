@@ -10,7 +10,7 @@ from fastapi.encoders import jsonable_encoder
 
 
 
-async def process_image(file: UploadFile) -> ImageResponse:
+async def process_image_product_filter(file: UploadFile) -> ImageResponse:
     try:
         contents = await file.read()                #Get bytes from request
         image = Image.open(io.BytesIO(contents))    #Convert bytes in pillow image
