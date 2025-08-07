@@ -1,6 +1,7 @@
 ﻿from fastapi import UploadFile
 from fastapi import HTTPException
 from AI_services.DTO.ProductFilter import ImageResponse
+import AI_services.DTO.CriteriaForFilter as criteria
 from PIL import Image
 import torch
 import clip
@@ -19,91 +20,23 @@ async def process_image_product_filter(file: UploadFile) -> ImageResponse:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model, preprocess = clip.load("ViT-B/32", device=device)
 
-        #Criterias 
-        #General
-        genders = [
-            "men", "women", "unisex", "male", "female",
-            "boy", "girl", "child", "adult", "teen"
-        ]
-
-        styles = [
-            "classic", "elegant", "modern", "vintage", "minimalist",
-            "boho", "baroque", "romantic", "futuristic", "casual"
-        ]
-
-        description_candidates = [
-            "luxurious", "handcrafted", "delicate", "bold", "unique",
-            "minimalistic", "vintage-inspired", "modern design", "elegant finish", "high quality"
-        ]
-
-        #For metals
-        metals = [
-            "gold", "silver", "platinum", "rose gold", "white gold",
-            "titanium", "steel", "bronze", "copper", "palladium"
-        ]
-
-        metal_shapes = [
-            "round", "oval", "square", "rectangle", "heart",
-            "twisted", "geometric", "triangular", "hexagonal", "octagonal"
-        ]
-
-        metal_colors = [
-            "yellow", "white", "rose", "black", "blue",
-            "green", "purple", "red", "pink", "orange"
-        ]
-
-        metal_sizes = [
-            "Small", "Medium", "Large"
-        ]
-
-        metal_types = [
-            "solid", "plated", "mixed", "brushed", "polished",
-            "matte", "textured", "engraved", "hammered", "oxidized"
-        ]
-
-        #For stones
-        stones = [
-            "diamond", "emerald", "sapphire", "ruby", "amethyst",
-            "topaz", "pearl", "turquoise", "garnet", "opal"
-        ]
-
-        stone_shapes = [
-            "round", "princess", "emerald", "oval", "marquise",
-            "pear", "heart", "cushion", "asscher", "brilliant"
-        ]
-
-        stone_colors = [
-            "white", "blue", "red", "green", "purple",
-            "pink", "yellow", "black", "brown", "orange"
-        ]
-
-        stone_sizes = [
-            "Tiny", "Regular", "Big"
-        ]
-
-        stone_types = [
-            "precious", "semi-precious", "synthetic", "natural", "treated",
-            "untreated", "raw", "cut", "faceted", "cabochon"
-        ]
-
-
         #Categories in CLIP tokens
         #General
-        genders_tokens = clip.tokenize(genders).to(device)
-        styles_tokens = clip.tokenize(styles).to(device)
-        description_tokens = clip.tokenize(genders).to(device)
+        genders_tokens = clip.tokenizecriteria(criteria.genders).to(device)
+        styles_tokens = clip.tokenize(criteria.styles).to(device)
+        description_tokens = clip.tokenize(criteria.genders).to(device)
         #Metals
-        metals_tokens = clip.tokenize(metals).to(device)
-        metal_shapes_tokens = clip.tokenize(metal_shapes).to(device)
-        metal_colors_tokens = clip.tokenize(metal_colors).to(device)
-        metal_sizes_tokens = clip.tokenize(metal_sizes).to(device)
-        metal_types_tokens = clip.tokenize(metal_types).to(device)
+        metals_tokens = clip.tokenize(criteria.metals).to(device)
+        metal_shapes_tokens = clip.tokenize(criteria.metal_shapes).to(device)
+        metal_colors_tokens = clip.tokenize(criteria.metal_colors).to(device)
+        metal_sizes_tokens = clip.tokenize(criteria.metal_sizes).to(device)
+        metal_types_tokens = clip.tokenize(criteria.metal_types).to(device)
         #Stones
-        stones_tokens = clip.tokenize(stones).to(device)
-        stone_shapes_tokens = clip.tokenize(stone_shapes).to(device)
-        stone_colors_tokens = clip.tokenize(stone_colors).to(device)
-        stone_sizes_tokens = clip.tokenize(stone_sizes).to(device)
-        stone_types_tokens = clip.tokenize(stone_types).to(device)
+        stones_tokens = clip.tokenize(criteria.stones).to(device)
+        stone_shapes_tokens = clip.tokenize(criteria.stone_shapes).to(device)
+        stone_colors_tokens = clip.tokenize(criteria.stone_colors).to(device)
+        stone_sizes_tokens = clip.tokenize(criteria.stone_sizes).to(device)
+        stone_types_tokens = clip.tokenize(criteria.stone_types).to(device)
 
 
         # Comparison of image into criterias

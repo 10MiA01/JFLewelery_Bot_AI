@@ -1,6 +1,7 @@
 from fastapi import APIRouter, File, UploadFile, Form
 from AI_services.Services.image_analysis import process_image_product_filter
 from AI_services.Services.tryon import process_image_try_on
+from AI_services.Services.sentence_analysis import process_sentence_product_filter
 from AI_services.DTO.ProductFilter import ImageResponse
 import traceback
 from fastapi import HTTPException
@@ -35,5 +36,17 @@ async def virtual_fitting(file: UploadFile = File(...), category: str = Form(...
         )
     except Exception as e:
         print("[ERROR] Exception occurred in virtual_fitting")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/analyze-sentence")
+async def analyze_sentence(sentence: str = Form(...)):
+    try:
+        result = await process_sentence_product_filter(sentence)  
+        print("[DEBUG] Result:")
+        print(result)
+        return result
+    except Exception as e:
+        print("[ERROR] Exception occurred in analyze_sentence")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

@@ -25,10 +25,12 @@
   <ItemGroup>
     <Compile Include="AI_services\API\routes.py" />
     <Compile Include="AI_services\API\__init__.py" />
+    <Compile Include="AI_services\DTO\CriteriaForFilter.py" />
     <Compile Include="AI_services\DTO\ProductFilter.py" />
     <Compile Include="AI_services\DTO\__init__.py" />
     <Compile Include="AI_services\Helpers\CategoryTryOnDict.py" />
     <Compile Include="AI_services\Helpers\__init__.py" />
+    <Compile Include="AI_services\Services\sentence_analysis.py" />
     <Compile Include="main.py" />
     <Compile Include="AI_services\Services\image_analysis.py" />
     <Compile Include="AI_services\Services\tryon.py" />
